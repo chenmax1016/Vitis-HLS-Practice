@@ -1,0 +1,22 @@
+# ============================================
+# Vitis HLS generated files
+# ============================================
+*_hls/
+
+# Logs
+logs/
+*.log
+*.jou
+
+# Debug / temporary files
+.debug/
+.autopilot/
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+.vscode/
+
+# other
+archive/
+dfx_runtime.txt

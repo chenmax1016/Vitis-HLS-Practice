@@ -1,0 +1,152 @@
+
+
+================================================================
+== Vitis HLS Report for 'dataflow'
+================================================================
+* Date:           Thu Sep  3 17:08:19 2026
+
+* Version:        2025.1 (Build 6135595 on May 21 2025)
+* Project:        dataflow_hls
+* Solution:       solution_1 (Vivado IP Flow Target)
+* Product family: artix7
+* Target device:  xc7a100t-csg324-1
+
+
+================================================================
+== Performance Estimates
+================================================================
++ Timing: 
+    * Summary: 
+    +--------+----------+----------+------------+
+    |  Clock |  Target  | Estimated| Uncertainty|
+    +--------+----------+----------+------------+
+    |ap_clk  |  10.00 ns|  7.300 ns|     2.70 ns|
+    +--------+----------+----------+------------+
+
++ Latency: 
+    * Summary: 
+    +---------+---------+----------+----------+-----+-----+----------+
+    |  Latency (cycles) |  Latency (absolute) |  Interval | Pipeline |
+    |   min   |   max   |    min   |    max   | min | max |   Type   |
+    +---------+---------+----------+----------+-----+-----+----------+
+    |       35|       35|  0.350 us|  0.350 us|   32|   32|  dataflow|
+    +---------+---------+----------+----------+-----+-----+----------+
+
+    + Detail: 
+        * Instance: 
+        +------------+---------+---------+---------+----------+----------+-----+-----+------------------------------------------------+
+        |            |         |  Latency (cycles) |  Latency (absolute) |  Interval |                    Pipeline                    |
+        |  Instance  |  Module |   min   |   max   |    min   |    max   | min | max |                      Type                      |
+        +------------+---------+---------+---------+----------+----------+-----+-----+------------------------------------------------+
+        |load_U0     |load     |       18|       18|  0.180 us|  0.180 us|   16|   16|  loop auto-rewind stp (delay=0 clock cycles(s))|
+        |compute_U0  |compute  |       33|       33|  0.330 us|  0.330 us|   32|   32|  loop auto-rewind stp (delay=0 clock cycles(s))|
+        |store_U0    |store    |       17|       17|  0.170 us|  0.170 us|   16|   16|  loop auto-rewind stp (delay=0 clock cycles(s))|
+        +------------+---------+---------+---------+----------+----------+-----+-----+------------------------------------------------+
+
+        * Loop: 
+        N/A
+
+
+
+================================================================
+== Utilization Estimates
+================================================================
+* Summary: 
++-----------------+---------+-----+--------+-------+-----+
+|       Name      | BRAM_18K| DSP |   FF   |  LUT  | URAM|
++-----------------+---------+-----+--------+-------+-----+
+|DSP              |        -|    -|       -|      -|    -|
+|Expression       |        -|    -|       0|      2|    -|
+|FIFO             |        -|    -|     198|    136|    -|
+|Instance         |        -|    -|      55|    258|    -|
+|Memory           |        -|    -|       -|      -|    -|
+|Multiplexer      |        -|    -|       -|      -|    -|
+|Register         |        -|    -|       -|      -|    -|
++-----------------+---------+-----+--------+-------+-----+
+|Total            |        0|    0|     253|    396|    0|
++-----------------+---------+-----+--------+-------+-----+
+|Available        |      270|  240|  126800|  63400|    0|
++-----------------+---------+-----+--------+-------+-----+
+|Utilization (%)  |        0|    0|      ~0|     ~0|    0|
++-----------------+---------+-----+--------+-------+-----+
+
++ Detail: 
+    * Instance: 
+    +------------+---------+---------+----+----+-----+-----+
+    |  Instance  |  Module | BRAM_18K| DSP| FF | LUT | URAM|
+    +------------+---------+---------+----+----+-----+-----+
+    |compute_U0  |compute  |        0|   0|  40|  108|    0|
+    |load_U0     |load     |        0|   0|   9|   86|    0|
+    |store_U0    |store    |        0|   0|   6|   64|    0|
+    +------------+---------+---------+----+----+-----+-----+
+    |Total       |         |        0|   0|  55|  258|    0|
+    +------------+---------+---------+----+----+-----+-----+
+
+    * DSP: 
+    N/A
+
+    * Memory: 
+    N/A
+
+    * FIFO: 
+    +-----------+---------+----+----+-----+------+-----+---------+
+    |    Name   | BRAM_18K| FF | LUT| URAM| Depth| Bits| Size:D*B|
+    +-----------+---------+----+----+-----+------+-----+---------+
+    |stream1_U  |        0|  99|   0|    -|     2|   32|       64|
+    |stream2_U  |        0|  99|   0|    -|     2|   32|       64|
+    +-----------+---------+----+----+-----+------+-----+---------+
+    |Total      |        0| 198|   0|    0|     4|   64|      128|
+    +-----------+---------+----+----+-----+------+-----+---------+
+
+    * Expression: 
+    +--------------+----------+----+---+----+------------+------------+
+    | Variable Name| Operation| DSP| FF| LUT| Bitwidth P0| Bitwidth P1|
+    +--------------+----------+----+---+----+------------+------------+
+    |ap_idle       |       and|   0|  0|   2|           1|           1|
+    +--------------+----------+----+---+----+------------+------------+
+    |Total         |          |   0|  0|   2|           1|           1|
+    +--------------+----------+----+---+----+------------+------------+
+
+    * Multiplexer: 
+    N/A
+
+    * Register: 
+    N/A
+
+
+
+================================================================
+== Interface
+================================================================
+* Summary: 
++----------------+-----+-----+------------+--------------+--------------+
+|    RTL Ports   | Dir | Bits|  Protocol  | Source Object|    C Type    |
++----------------+-----+-----+------------+--------------+--------------+
+|in_r_address0   |  out|    4|   ap_memory|          in_r|         array|
+|in_r_ce0        |  out|    1|   ap_memory|          in_r|         array|
+|in_r_d0         |  out|   32|   ap_memory|          in_r|         array|
+|in_r_q0         |   in|   32|   ap_memory|          in_r|         array|
+|in_r_we0        |  out|    1|   ap_memory|          in_r|         array|
+|in_r_address1   |  out|    4|   ap_memory|          in_r|         array|
+|in_r_ce1        |  out|    1|   ap_memory|          in_r|         array|
+|in_r_d1         |  out|   32|   ap_memory|          in_r|         array|
+|in_r_q1         |   in|   32|   ap_memory|          in_r|         array|
+|in_r_we1        |  out|    1|   ap_memory|          in_r|         array|
+|out_r_address0  |  out|    4|   ap_memory|         out_r|         array|
+|out_r_ce0       |  out|    1|   ap_memory|         out_r|         array|
+|out_r_d0        |  out|   32|   ap_memory|         out_r|         array|
+|out_r_q0        |   in|   32|   ap_memory|         out_r|         array|
+|out_r_we0       |  out|    1|   ap_memory|         out_r|         array|
+|out_r_address1  |  out|    4|   ap_memory|         out_r|         array|
+|out_r_ce1       |  out|    1|   ap_memory|         out_r|         array|
+|out_r_d1        |  out|   32|   ap_memory|         out_r|         array|
+|out_r_q1        |   in|   32|   ap_memory|         out_r|         array|
+|out_r_we1       |  out|    1|   ap_memory|         out_r|         array|
+|ap_clk          |   in|    1|  ap_ctrl_hs|      dataflow|  return value|
+|ap_rst          |   in|    1|  ap_ctrl_hs|      dataflow|  return value|
+|ap_start        |   in|    1|  ap_ctrl_hs|      dataflow|  return value|
+|ap_done         |  out|    1|  ap_ctrl_hs|      dataflow|  return value|
+|ap_ready        |  out|    1|  ap_ctrl_hs|      dataflow|  return value|
+|ap_idle         |  out|    1|  ap_ctrl_hs|      dataflow|  return value|
++----------------+-----+-----+------------+--------------+--------------+
+
