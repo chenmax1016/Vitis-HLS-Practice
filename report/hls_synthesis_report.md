@@ -110,7 +110,7 @@ The synthesized baseline design uses the following FPGA resources:
 
 The main arithmetic hardware is a single 32-bit signed multiplier, reported as `mul_32s_32s_32_2_1_U1`. Although there is only one multiplier instance, it consumes three DSP resources to implement the 32-bit multiplication.
 
-The accumulation operation `sum += ...` is implemented separately using LUTs. Since loop pipelining is disabled, the same multiplier and accumulator hardware can be reused across the 16 loop iterations instead of requiring separate arithmetic hardware for every iteration.
+The multiplication is mapped to a single DSP-based multiplier, which uses three DSP slices, while the 32-bit accumulation addition is implemented using LUTs. The accumulated value sum is stored in a 32-bit register. Since loop pipelining is disabled, consecutive loop iterations do not overlap in execution. As a result, the loop processes one iteration at a time.
 
 This demonstrates an important characteristic of HLS: the number of operations in the C code does not directly correspond to the number of hardware units. Scheduling and resource sharing determine how the operations are mapped onto the FPGA.
 
@@ -136,9 +136,70 @@ The function itself uses the `ap_ctrl_hs` control protocol, which generates sign
 
 ## 3. Loop Pipelining
 ### 3.1 PIPELINE Directive
-### 3.2 Pipeline Disabled
-### 3.3 Comparison
-### 3.4 Temporal Parallelism
+
+In C++, loop iterations are executed sequentially according to the program
+semantics. In hardware, however, the operations within an iteration can be
+scheduled into multiple stages. Loop pipelining allows different iterations
+to overlap their execution across these stages, improving the throughput of
+the loop.
+
+The initiation interval (II) represents the number of clock cycles between
+the start of two consecutive loop iterations. The following directive requests
+an II of one cycle:
+```cpp
+#pragma HLS PIPELINE II=1
+```
+### 3.2 Performance Comparison
+
+To observe the effect of loop pipelining, the dot-product loop was synthesized
+with pipelining disabled and with a target initiation interval of one.
+
+| Configuration   | Loop Latency | Iteration Latency | Achieved II | Function Latency | Function Interval |
+| --------------- | -----------: | ----------------: | ----------: | ---------------: | ----------------: |
+| `PIPELINE off`  |    80 cycles |          5 cycles |         N/A |        81 cycles |         82 cycles |
+| `PIPELINE II=1` |    19 cycles |          5 cycles |           1 |        21 cycles |         19 cycles |
+
+
+Without pipelining, each iteration completes before the next iteration starts.
+Since each iteration has a latency of 5 cycles and the loop has a trip count of
+16, the total loop latency is 80 cycles.
+
+After pipelining is enabled, the iteration latency remains 5 cycles, but the
+achieved II becomes 1. Therefore, a new iteration can start every clock cycle
+while previous iterations are still in progress. This overlap reduces the loop
+latency from 80 cycles to 19 cycles and the overall function latency from 81
+cycles to 21 cycles.
+
+This demonstrates that pipelining improves throughput by overlapping loop
+iterations rather than reducing the latency of an individual iteration.
+
+
+### 3.3 Utilization Comparison
+
+Loop pipelining improves performance at the cost of additional control and
+register resources.
+
+| Configuration   | BRAM | DSP |  FF | LUT |
+| --------------- | ---: | --: | --: | --: |
+| `PIPELINE off`  |    0 |   3 | 304 | 163 |
+| `PIPELINE II=1` |    0 |   3 | 375 | 198 |
+| Difference      |    0 |   0 | +71 | +35 |
+
+
+The number of DSP slices remains unchanged at three in both designs. The
+synthesis reports also show the same single multiplier instance in both
+configurations. Therefore, loop pipelining does not duplicate the multiplier
+in this experiment.
+
+However, the pipelined design uses more FFs and LUTs. The FF count increases
+from 304 to 375, while the LUT count increases from 163 to 198. These additional
+resources are associated with the registers and control logic required to
+support overlapped execution of loop iterations.
+
+Therefore, this experiment shows an important HLS trade-off: loop pipelining
+can significantly improve throughput and latency without necessarily
+duplicating arithmetic units, but additional registers and control logic may
+be required.
 
 ## 4. Loop Unrolling
 ### 4.1 UNROLL factor=2
