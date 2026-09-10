@@ -202,10 +202,116 @@ duplicating arithmetic units, but additional registers and control logic may
 be required.
 
 ## 4. Loop Unrolling
-### 4.1 UNROLL factor=2
-### 4.2 UNROLL factor=4
-### 4.3 Spatial Parallelism
-### 4.4 Memory Bandwidth Bottleneck
+
+### 4.1 UNROLL Directive
+
+In the previous experiments, only one multiplier was synthesized regardless of
+whether loop pipelining was enabled. Pipelining improved performance by
+overlapping the execution of different iterations, but it did not increase the
+number of multiplier instances.
+
+Another approach to increasing parallelism is loop unrolling. The dot-product
+loop contains multiple multiplication operations from different iterations.
+By unrolling the loop, multiple original iterations are expanded into the same
+scheduling scope, giving HLS the opportunity to execute multiple operations in
+parallel.
+
+For example, the following directive unrolls the loop by a factor of two:
+
+```cpp
+#pragma HLS UNROLL factor=2
+```
+
+### 4.2 UNROLL factor=2
+
+The loop was first synthesized with UNROLL factor=2 while loop pipelining
+remained disabled.
+
+| Metric            | `PIPELINE off` | `UNROLL factor=2` |
+| ----------------- | -------------: | ----------------: |
+| Trip Count        |             16 |                 8 |
+| Iteration Latency |       5 cycles |          5 cycles |
+| Loop Latency      |      80 cycles |         40 cycles |
+| Function Latency  |      81 cycles |         41 cycles |
+| Function Interval |      82 cycles |         42 cycles |
+
+The trip count decreases from 16 to 8 because each unrolled iteration represents
+two iterations of the original loop. The iteration latency remains at 5 cycles,
+while the loop latency decreases from 80 to 40 cycles. As a result, the overall
+function latency is reduced from 81 to 41 cycles.
+
+In this case, the unroll factor of two achieves almost the expected 2×
+improvement in latency because the hardware is able to process the additional
+operations without increasing the iteration latency.
+
+| Resource | `PIPELINE off` | `UNROLL factor=2` |
+| -------- | -------------: | ----------------: |
+| BRAM     |              0 |                 0 |
+| DSP      |              3 |                 6 |
+| FF       |            304 |               565 |
+| LUT      |            163 |               224 |
+
+The number of DSP slices increases from 3 to 6. The synthesis report shows two
+multiplier instances, with each 32-bit multiplier using three DSP slices.
+Therefore, unlike loop pipelining, unrolling by a factor of two results in two
+multiplier datapaths in this experiment.
+
+The FF and LUT usage also increases because additional datapath, registers,
+multiplexing, and control logic are required to support the unrolled operations.
+This demonstrates the basic trade-off of spatial parallelism: lower latency is
+achieved by using more hardware resources.
+
+
+### 4.3 UNROLL factor=4
+
+The unroll factor was then increased from two to four.
+
+| Metric            | `UNROLL factor=2` | `UNROLL factor=4` |
+| ----------------- | ----------------: | ----------------: |
+| Trip Count        |                 8 |                 4 |
+| Iteration Latency |          5 cycles |          7 cycles |
+| Loop Latency      |         40 cycles |         28 cycles |
+| Function Latency  |         41 cycles |         29 cycles |
+| Function Interval |         42 cycles |         30 cycles |
+
+As expected, increasing the unroll factor from two to four further reduces the
+trip count from 8 to 4. However, the iteration latency increases from 5 to 7
+cycles. Therefore, the loop latency decreases from 40 to 28 cycles rather than
+the ideal 20 cycles.
+
+This result shows that increasing the unroll factor does not necessarily produce
+a proportional performance improvement. Although four original iterations are
+now exposed to the scheduler at once, the available hardware cannot execute all
+of their operations fully in parallel.
+
+| Resource | `UNROLL factor=2` | `UNROLL factor=4` |
+| -------- | ----------------: | ----------------: |
+| BRAM     |                 0 |                 0 |
+| DSP      |                 6 |                 6 |
+| FF       |               565 |               761 |
+| LUT      |               224 |               414 |
+
+Interestingly, the DSP usage remains at 6. The synthesis report still contains
+only two multiplier instances instead of four. Therefore, increasing the unroll
+factor from two to four does not result in four physical multipliers.
+
+Nevertheless, the design is still faster because the trip count is reduced from
+8 to 4. HLS schedules the operations exposed by the four-way unrolled loop over
+the available hardware, resulting in a longer iteration latency of 7 cycles but
+a lower total loop latency of 28 cycles.
+
+The FF usage increases from 565 to 761 and the LUT usage increases from 224 to
+414, indicating that additional logic is still required for the more heavily
+unrolled datapath even though the number of multiplier instances does not
+increase.
+
+One important limitation is the memory interface. The input arrays still have
+limited memory ports, restricting the number of elements that can be read
+simultaneously. Therefore, computation parallelism exposed by loop unrolling
+cannot necessarily be fully utilized without sufficient memory bandwidth. This
+motivates the use of array partitioning in the next experiment.
+
+
 
 ## 5. Array Partitioning
 ### 5.1 Complete Partition
