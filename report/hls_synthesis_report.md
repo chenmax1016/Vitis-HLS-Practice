@@ -646,10 +646,163 @@ By combining both techniques, each individual stage can process data
 efficiently while multiple stages operate concurrently.
 
 ## 7. Streaming Architecture
-### 7.1 Array Buffer vs hls::stream
+
+### 7.1 Array Buffer vs `hls::stream`
+
+`DATAFLOW` improves temporal parallelism by allowing independent tasks to execute concurrently. In the previous architecture, the Load, Compute, and Store tasks can process different batches of data at the same time. However, when arrays are used as intermediate buffers, communication between tasks is performed at the buffer level rather than directly transferring individual elements as soon as they become available.
+
+For a sequential execution without task overlap, the total latency can be approximated as
+
+$$
+L_{\text{total}} \approx \sum_{i=0}^{T-1} L_i,
+$$
+
+where $T$ is the number of tasks and $L_i$ is the latency of task $i$. Dataflow execution reduces this cost by overlapping the execution of different tasks. However, the granularity of communication between tasks still affects how early a consumer can start processing data produced by the previous task.
+
+In this experiment, each element can be processed independently after it is produced by the previous task. Therefore, storing an entire intermediate array is unnecessary. The intermediate arrays are replaced by `hls::stream`, allowing data to be transferred between tasks element by element.
+
+The resulting architecture can be represented as
+
+```text
+Input
+  │
+  ▼
+┌──────┐    FIFO     ┌─────────┐    FIFO     ┌───────┐
+│ Load │ ──────────► │ Compute │ ──────────► │ Store │
+└──────┘             └─────────┘             └───────┘
+```
+
+The Load task reads an input element and immediately writes it into the first stream. The Compute task can consume the element as soon as it becomes available and write the result into the second stream. Similarly, the Store task consumes the result without waiting for the complete output array to be generated.
+
+This enables fine-grained, element-level pipelining across the three tasks.
+
+#### Performance
+
+The synthesis result of the streaming implementation is shown below.
+
+| Module                 |       Latency |      Interval |
+| ---------------------- | ------------: | ------------: |
+| Load                   |     18 cycles |     16 cycles |
+| Compute                |     17 cycles |     16 cycles |
+| Store                  |     17 cycles |     16 cycles |
+| **Top-level Dataflow** | **20 cycles** | **16 cycles** |
+
+Although the individual task latencies are 18, 17, and 17 cycles, the top-level latency is only 20 cycles instead of their sum,
+
+$$
+18 + 17 + 17 = 52 \text{ cycles}.
+$$
+
+This is because the tasks operate concurrently and communicate at element granularity. Once Load produces the first element, Compute can begin processing it without waiting for Load to finish all 16 elements. Store can similarly begin after the first computed result becomes available.
+
+The top-level interval is 16 cycles, meaning that a new invocation of the dataflow region can begin every 16 cycles. In this implementation, the interval is closely related to the 16-element workload processed by each task.
+
+Therefore, streaming does not reduce the amount of data that must be processed. Instead, it reduces idle time between tasks by allowing their execution to overlap at a finer granularity.
+
 ### 7.2 FIFO
+
+An `hls::stream` between two dataflow tasks is synthesized into a FIFO communication channel. Unlike an array buffer, a FIFO does not require random access. Data is written and read sequentially in first-in-first-out order.
+
+The synthesis report shows two intermediate FIFOs:
+
+| FIFO        |         Depth |   Width |      FF |  BRAM |
+| ----------- | ------------: | ------: | ------: | ----: |
+| `stream1_U` |             2 | 32 bits |      99 |     0 |
+| `stream2_U` |             2 | 32 bits |      99 |     0 |
+| **Total**   | **4 entries** |       — | **198** | **0** |
+
+Each FIFO only needs a depth of 2 because the producer and consumer operate concurrently at similar rates. Therefore, it is unnecessary to allocate storage for the entire 16-element intermediate array.
+
+However, FIFO communication introduces additional control hardware. In this implementation, the two FIFOs together consume 198 FFs. The complete streaming design uses 220 FFs and 370 LUTs.
+
+This illustrates a resource trade-off of streaming architectures. Replacing intermediate arrays with streams can reduce the amount of buffered data and enable finer-grained task overlap, but FIFO control and synchronization require additional hardware resources.
+
+For larger FIFOs, HLS may implement the storage using other FPGA memory resources depending on the FIFO depth, width, and synthesis configuration.
+
 ### 7.3 Blocking Read/Write
-### 7.4 Backpressure
-### 7.5 Pipeline Bottleneck
+
+By default, `hls::stream::read()` and `hls::stream::write()` are blocking operations.
+
+For a read operation,
+
+```cpp
+data = stream.read();
+```
+
+the consumer cannot continue if the FIFO is empty. It must wait until the producer writes valid data into the FIFO.
+
+Similarly, for a write operation,
+
+```cpp
+stream.write(data);
+```
+
+the producer cannot continue if the FIFO is full. It must wait until the consumer reads an element and releases an available FIFO entry.
+
+Therefore, each FIFO provides two forms of flow control:
+
+* **Empty:** prevents the consumer from reading unavailable data.
+* **Full:** prevents the producer from overwriting unread data.
+
+This behavior provides automatic synchronization between dataflow tasks. No explicit software-style synchronization is required because the FIFO state determines whether each task can proceed.
+
+However, blocking communication also means that the execution rate of one task can affect neighboring tasks. A slow consumer can fill its input FIFO and block the producer. Similarly, a slow producer can leave the FIFO empty and stall the consumer. This effect is known as **backpressure**.
+
+### 7.4 Pipeline Bottleneck
+
+A streaming dataflow architecture does not guarantee that every task can operate at the same throughput. The overall throughput is ultimately limited by the slowest stage in the pipeline.
+
+In the original streaming implementation, all three tasks have an interval of 16 cycles:
+
+$$
+II_{\text{Load}} =
+II_{\text{Compute}} =
+II_{\text{Store}} = 16.
+$$
+
+The resulting top-level interval is therefore also 16 cycles.
+
+To demonstrate the effect of a pipeline bottleneck, the Compute stage is intentionally slowed down. The synthesis result becomes:
+
+| Module                 |       Latency |      Interval |
+| ---------------------- | ------------: | ------------: |
+| Load                   |     18 cycles |     16 cycles |
+| **Compute**            | **33 cycles** | **32 cycles** |
+| Store                  |     17 cycles |     16 cycles |
+| **Top-level Dataflow** | **35 cycles** | **32 cycles** |
+
+Compute can now accept a new workload only every 32 cycles, while Load and Store are capable of operating every 16 cycles. Therefore, Compute becomes the bottleneck of the entire pipeline.
+
+The faster Load stage initially writes data into the FIFO faster than Compute can consume it. Because the FIFO has a finite depth, it eventually becomes full. The blocking `write()` operation then stalls Load until Compute consumes more data. This propagates backpressure toward the upstream stage.
+
+Similarly, Store cannot process data faster than Compute produces it and may stall while waiting for new elements.
+
+As a result, the throughput of the complete dataflow pipeline is determined by the stage with the largest interval:
+
+$$
+II_{\text{dataflow}}
+\approx
+\max
+\left(
+II_{\text{Load}},
+II_{\text{Compute}},
+II_{\text{Store}}
+\right).
+$$
+
+For this experiment,
+
+$$
+II_{\text{dataflow}}
+=
+\max(16, 32, 16)
+=
+32.
+$$
+
+The top-level synthesis result confirms this behavior with an interval of 32 cycles and a latency of 35 cycles.
+
+This experiment demonstrates that FIFO buffering can temporarily absorb differences in production and consumption rates, but it cannot eliminate a sustained throughput mismatch. To improve the throughput of a streaming architecture, optimization should therefore focus on the bottleneck stage rather than only increasing FIFO depth.
+
 
 ## 8. Summary
