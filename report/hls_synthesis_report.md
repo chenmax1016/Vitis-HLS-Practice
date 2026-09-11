@@ -531,11 +531,7 @@ each task, HLS can potentially execute Load, Compute, and Store concurrently.
 ### 6.2 Sequential Execution
 
 As a baseline, the loops inside the Load, Compute, and Store tasks are
-pipelined with:
-
-```cpp
-#pragma HLS PIPELINE II=1
-```
+pipelined with `II = 1`.
 
 However, `DATAFLOW` is not enabled at the top level. Therefore, although the
 loops inside each task are pipelined, the three tasks themselves do not overlap
@@ -567,25 +563,6 @@ cycles to process one transaction and has an interval of 60 cycles.
 Therefore, pipelining the loops inside individual tasks improves their internal
 throughput, but does not by itself create parallel execution between different
 tasks.
-
-#### Resource Utilization
-
-| Resource | Sequential |
-|---|---:|
-| BRAM | 0 |
-| DSP | 0 |
-| FF | 111 |
-| LUT | 310 |
-
-The three processing stages are synthesized as separate hardware modules.
-However, without task-level dataflow, these modules are not used concurrently
-for different transactions. For example, while the Compute stage is operating,
-the Load and Store stages cannot simultaneously process the next and previous
-transactions at the top level.
-
-This leaves an opportunity to improve hardware utilization over time by
-overlapping the execution of the three tasks.
-
 
 ### 6.3 DATAFLOW
 
@@ -667,6 +644,7 @@ pipelining:
 
 By combining both techniques, each individual stage can process data
 efficiently while multiple stages operate concurrently.
+
 ## 7. Streaming Architecture
 ### 7.1 Array Buffer vs hls::stream
 ### 7.2 FIFO
