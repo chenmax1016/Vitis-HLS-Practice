@@ -793,11 +793,7 @@ $$
 For this experiment,
 
 $$
-II_{\text{dataflow}}
-=
-\max(16, 32, 16)
-=
-32.
+II_{\text{dataflow}}=\max(16, 32, 16)=32.
 $$
 
 The top-level synthesis result confirms this behavior with an interval of 32 cycles and a latency of 35 cycles.
