@@ -408,21 +408,24 @@ required to support them.
 ### 5.2 Cyclic Partition
 
 Although complete partitioning provides the highest degree of independent
-access, its hardware cost can be significant. Furthermore, the four-way
-unrolled loop does not require simultaneous access to all 16 elements. It only
-needs to access four consecutive elements from each input array during an
-unrolled iteration.
+access, its hardware cost is significant. In the previous experiment, all
+16 elements of each input array were completely separated, resulting in a
+large number of registers.
 
-Instead of completely partitioning the arrays, they can be divided into four
-memory banks:
+However, the four-way unrolled loop does not require all 16 elements to be
+accessed simultaneously. Each unrolled iteration only requires four consecutive
+elements from each input array. Therefore, completely partitioning the array is
+unnecessary.
+
+A more resource-efficient solution is cyclic partitioning:
 
 ```cpp
 #pragma HLS ARRAY_PARTITION variable=a cyclic factor=4
 #pragma HLS ARRAY_PARTITION variable=b cyclic factor=4
 ```
 
-With cyclic partitioning, array elements are distributed across the banks in
-a round-robin pattern:
+With a cyclic partition factor of four, the array is divided into four
+independently accessible memory banks:
 
 ```text
 Bank 0: a[0],  a[4],  a[8],  a[12]
@@ -431,40 +434,239 @@ Bank 2: a[2],  a[6],  a[10], a[14]
 Bank 3: a[3],  a[7],  a[11], a[15]
 ```
 
-Therefore, four consecutive elements such as `a[0]`, `a[1]`, `a[2]`, and
-`a[3]` are located in four different banks and can be accessed independently.
+Four consecutive elements are therefore distributed across four different
+banks and can be accessed in parallel.
 
-#### Resource Utilization and Performance
+#### Resource Utilization
+
+| Resource | Complete Partition | Cyclic Factor=4 |
+|---|---:|---:|
+| BRAM | 0 | 0 |
+| DSP | 12 | 12 |
+| FF | 2143 | 1120 |
+| LUT | 538 | 406 |
+
+Both implementations use 12 DSP slices, indicating that cyclic partitioning
+still provides sufficient memory bandwidth for the four multiplier datapaths.
+
+The major advantage of cyclic partitioning is the reduction in storage and
+control resources. With complete partitioning, the synthesis report shows
+1483 FFs under the `Register` category because the array elements are exposed
+as independently accessible scalar values. In contrast, the cyclic-partitioned
+design uses only 460 FFs in the `Register` category because the arrays remain
+organized as four memory banks instead of being completely separated.
+
+As a result, the total FF usage decreases from 2143 to 1120, while LUT usage
+decreases from 538 to 406. Therefore, cyclic partitioning achieves the required
+four-way memory parallelism with substantially lower hardware cost.
+
+#### Performance Comparison
 
 | Metric | Complete Partition | Cyclic Factor=4 |
 |---|---:|---:|
-| DSP | 12 | 12 |
 | Trip Count | 4 | 4 |
 | Iteration Latency | 5 cycles | 6 cycles |
 | Loop Latency | 20 cycles | 24 cycles |
+| Function Latency | 21 cycles | 25 cycles |
+| Function Interval | 22 cycles | 26 cycles |
 
-The cyclic-partitioned design also synthesizes four multiplier instances,
-corresponding to 12 DSP slices. Therefore, four memory banks provide sufficient
-memory-level parallelism for the four-way unrolled computation in this
-experiment.
+The cyclic-partitioned design has a slightly higher iteration latency than the
+complete-partitioned design. The iteration latency increases from 5 to 6 cycles,
+and the loop latency increases from 20 to 24 cycles.
 
-However, the iteration latency increases slightly from 5 cycles with complete
-partitioning to 6 cycles with cyclic partitioning, resulting in a loop latency
-of 24 cycles instead of 20 cycles. Unlike complete partitioning, cyclic
-partitioning retains a banked memory structure with address generation and
-memory access scheduling.
+This is the trade-off of using a banked memory structure. Complete partitioning
+provides direct independent access to every element, while cyclic partitioning
+retains address generation and banked memory access. Although this introduces
+a small latency overhead, it significantly reduces FF and LUT usage while still
+supporting four parallel multiplier datapaths.
 
-Therefore, cyclic partitioning provides a compromise between memory parallelism
-and storage cost. It can provide the required number of parallel accesses
-without completely separating every array element.
-
+Therefore, cyclic partitioning provides a better balance between memory
+parallelism and hardware cost for this access pattern.
 
 ## 6. Task-Level Dataflow
-### 6.1 Load-Compute-Store Architecture
-### 6.2 Sequential Execution
-### 6.3 DATAFLOW
-### 6.4 Latency vs Interval
 
+### 6.1 Load-Compute-Store Architecture
+
+The previous experiments mainly focused on loop-level parallelism. Operations
+within a loop were optimized using pipelining, unrolling, and memory
+partitioning. However, realistic applications usually consist of multiple
+processing stages rather than a single computational loop.
+
+A common organization is the **Load-Compute-Store** architecture, which divides
+the processing flow into three tasks:
+
+```text
+Input
+  |
+  v
+Load
+  |
+  v
+Local Input Buffer
+  |
+  v
+Compute
+  |
+  v
+Local Output Buffer
+  |
+  v
+Store
+  |
+  v
+Output
+```
+
+The **Load** task reads input data from an external interface and writes it into
+a local buffer. After the required input data is available, the **Compute** task
+performs the arithmetic operations and writes the results into another local
+buffer. Finally, the **Store** task reads the output buffer and transfers the
+results to the output interface.
+
+Separating the design into multiple tasks provides an opportunity for
+**task-level parallelism**. Instead of optimizing only the iterations inside
+each task, HLS can potentially execute Load, Compute, and Store concurrently.
+
+
+### 6.2 Sequential Execution
+
+As a baseline, the loops inside the Load, Compute, and Store tasks are
+pipelined with:
+
+```cpp
+#pragma HLS PIPELINE II=1
+```
+
+However, `DATAFLOW` is not enabled at the top level. Therefore, although the
+loops inside each task are pipelined, the three tasks themselves do not overlap
+at the task level.
+
+Conceptually, one transaction is processed as:
+
+```text
+Time ---------------------------------------------------------->
+
+Load        [----------------]
+Compute                       [----------------]
+Store                                           [----------------]
+```
+
+The synthesis report gives the following performance:
+
+| Stage | Latency | Interval |
+|---|---:|---:|
+| Load | 18 cycles | 17 cycles |
+| Compute | 18 cycles | 17 cycles |
+| Store | 18 cycles | 17 cycles |
+| **Top Level** | **59 cycles** | **60 cycles** |
+
+Each individual task has a latency of 18 cycles. However, because the tasks
+execute without task-level overlapping, the top-level function requires 59
+cycles to process one transaction and has an interval of 60 cycles.
+
+Therefore, pipelining the loops inside individual tasks improves their internal
+throughput, but does not by itself create parallel execution between different
+tasks.
+
+#### Resource Utilization
+
+| Resource | Sequential |
+|---|---:|
+| BRAM | 0 |
+| DSP | 0 |
+| FF | 111 |
+| LUT | 310 |
+
+The three processing stages are synthesized as separate hardware modules.
+However, without task-level dataflow, these modules are not used concurrently
+for different transactions. For example, while the Compute stage is operating,
+the Load and Store stages cannot simultaneously process the next and previous
+transactions at the top level.
+
+This leaves an opportunity to improve hardware utilization over time by
+overlapping the execution of the three tasks.
+
+
+### 6.3 DATAFLOW
+
+In the sequential implementation, only one stage of a transaction is active at
+a time. For example, after Load finishes processing an input array, Compute
+starts processing that array before the design proceeds to Store.
+
+However, these tasks operate on different data buffers. Once the first input
+has been loaded and moves to the Compute stage, the Load stage can begin
+processing the next input. Similarly, while Compute processes the second input,
+Store can write the result of the previous input.
+
+Task-level overlapping can be enabled by placing the following directive in the
+top-level function:
+
+```cpp
+#pragma HLS DATAFLOW
+```
+
+The execution can then be represented as:
+
+```text
+Time ---------------------------------------------------------->
+
+Load       [ Data 1 ][ Data 2 ][ Data 3 ]
+Compute             [ Data 1 ][ Data 2 ][ Data 3 ]
+Store                          [ Data 1 ][ Data 2 ][ Data 3 ]
+```
+
+Different transactions can now occupy different stages simultaneously.
+
+#### Performance Comparison
+
+| Metric | Sequential | DATAFLOW |
+|---|---:|---:|
+| Top Latency | 59 cycles | 56 cycles |
+| Top Interval | 60 cycles | 16 cycles |
+| Load Latency | 18 cycles | 18 cycles |
+| Compute Latency | 18 cycles | 18 cycles |
+| Store Latency | 18 cycles | 18 cycles |
+
+The latency of the individual tasks remains unchanged at 18 cycles. The
+top-level latency also changes only slightly, from 59 to 56 cycles.
+
+The major improvement is the **top-level interval**, which decreases from
+60 cycles to 16 cycles. This means that after the dataflow pipeline reaches
+steady-state operation, the design can start processing a new 16-element
+transaction every 16 cycles instead of every 60 cycles.
+
+Therefore, the main benefit of `DATAFLOW` in this experiment is not reducing
+the latency of an individual transaction, but significantly increasing the
+throughput by overlapping the execution of different tasks.
+
+#### Resource Utilization
+
+| Resource | Sequential | DATAFLOW |
+|---|---:|---:|
+| BRAM | 0 | 2 |
+| DSP | 0 | 0 |
+| FF | 111 | 98 |
+| LUT | 310 | 222 |
+
+The most noticeable architectural change is the BRAM usage, which increases
+from 0 to 2. The dataflow implementation requires intermediate storage between
+concurrently executing tasks so that one stage can produce data while another
+stage consumes previously produced data.
+
+Interestingly, the total FF and LUT usage does not increase in this experiment.
+FF usage decreases from 111 to 98, while LUT usage decreases from 310 to 222.
+This shows that enabling `DATAFLOW` does not simply duplicate the existing
+hardware. Instead, HLS changes the scheduling, communication, buffering, and
+control structure of the top-level design.
+
+The result demonstrates the difference between loop-level and task-level
+pipelining:
+
+- `PIPELINE` overlaps **iterations within a task**.
+- `DATAFLOW` overlaps **different tasks across transactions**.
+
+By combining both techniques, each individual stage can process data
+efficiently while multiple stages operate concurrently.
 ## 7. Streaming Architecture
 ### 7.1 Array Buffer vs hls::stream
 ### 7.2 FIFO
