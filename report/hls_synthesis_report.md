@@ -802,3 +802,15 @@ This experiment demonstrates that FIFO buffering can temporarily absorb differen
 
 
 ## 8. Summary
+
+Through these experiments, we explored how different HLS optimization techniques affect hardware architecture, performance, and resource utilization. The results demonstrate that writing C/C++ code for HLS requires an understanding of the underlying hardware rather than relying solely on software-level optimization.
+
+**Loop pipelining** improves temporal parallelism by overlapping consecutive loop iterations. In the dot product experiment, enabling `PIPELINE II=1` reduced the function latency from 81 to 21 cycles without increasing the number of DSP slices. This demonstrates that higher throughput can be achieved through scheduling without necessarily duplicating arithmetic hardware.
+
+**Loop unrolling** increases spatial parallelism by exposing multiple operations to the HLS scheduler. However, increasing the unroll factor does not always result in a proportional increase in hardware parallelism. The experiments showed that memory bandwidth can limit the number of operations executed simultaneously. By applying `ARRAY_PARTITION`, more independent memory accesses become available, allowing HLS to utilize additional arithmetic units. Furthermore, cyclic partitioning demonstrated a better balance between memory parallelism and resource utilization compared with complete partitioning.
+
+**Task-level dataflow** enables different processing stages to operate concurrently. By separating the design into Load, Compute, and Store tasks, the top-level interval decreased from 60 to 16 cycles. Replacing intermediate array buffers with `hls::stream` further reduced the latency from 56 to 20 cycles by enabling element-level communication between tasks. However, the backpressure experiment demonstrated that the overall throughput remains limited by the slowest pipeline stage, regardless of the throughput of other stages.
+
+Overall, these experiments highlight several important principles of HLS optimization. Pipelining improves temporal parallelism, unrolling increases spatial parallelism, array partitioning provides the memory bandwidth required to support parallel computation, and dataflow enables concurrent execution across tasks. However, each optimization introduces different hardware costs and architectural constraints.
+
+**The key takeaway is that effective HLS optimization requires balancing computation parallelism, memory bandwidth, data movement, and hardware resource utilization.** Understanding how high-level directives affect the synthesized RTL is essential for designing efficient FPGA accelerators.
